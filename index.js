@@ -66,13 +66,12 @@ function addZero(arg){
  * Routes
  * ===================================
  */
-//Home
 app.get('/cooks', (req,res) =>{
   res.cookie('greeter', 'hello')
   res.send('Henlo!')
 })
 app.get('/cookr', (req, res) => {
-  console.log(req.cookies);
+  console.log(req.cookies.trainer_id);
   res.send('getting cookies')
 })
 
@@ -80,7 +79,7 @@ app.get('/register', (req,res) => {
   res.render('userreg', {msg: 'New User please register!'});
 })
 
-app.post('/registernew', (req,res) => {
+app.post('/registernew', (req,response) => {
   let hashbrowns = sha256(req.body.password)
   let insertString = 'INSERT into trainer(first_name, password_hash, email) VALUES ($1,$2,$3)'
   let insertValues = [req.body.first_name, hashbrowns, req.body.email]
@@ -89,8 +88,7 @@ app.post('/registernew', (req,res) => {
     if (err) {
       console.log(err);
     } else {
-      console.log(res);
-      res.redirect('/')
+      response.status(200).redirect('login')
     }
   })
 })
@@ -117,8 +115,9 @@ app.post('/logmein', (req, res) => {
         if (loginHashbrown === queryHashbrown) {
           res.cookie('is_logged_in', 'true')
           res.cookie('username', queryCheck[0].first_name)
+          res.cookie('trainer_id', queryCheck[0].id)
 
-          res.status(200).render('login', {msg:"you are logged in"})
+          res.status(200).render('login', {msg:"successfully logged in"})
         } else {
           res.status(401).render('login', {msg:"invalid username gtfo"})
         }
@@ -128,14 +127,41 @@ app.post('/logmein', (req, res) => {
   // res.status(200).render('login', {msg: 'Testing Login'})
 })
 
+app.post('/logmeout', (req,res) => {
+  res.clearCookie('trainer_id')
+  res.clearCookie('username')
+  res.clearCookie('is_logged_in')
+  res.redirect('/')
+})
+// how to add column and have association?
+// Check if user is logged in first, if not logged in don't allow creation of pokemon
+// If logged in 
+
+//Home
 app.get('/', (req, response) => {
   app.use((req,res) => {
     res.status(404).render('notfound')
   })
-  console.log(req.cookies)
   const queryString = 'SELECT * FROM pokemon ORDER BY id ASC'
   //when doing UPDATE, the database order is mixed up
   pool.query(queryString, (err, result) => {
+    if (err) {
+      console.error('query error:', err.stack);
+    } else {
+      console.log("Getting all the pokemons");
+      let pokemon = result.rows;
+      response.render('home', {pokemon : pokemon})
+    }
+  });
+});
+//Logged in home
+app.get('/userhome', (req, response) => {
+  app.use((req,res) => {
+    res.status(404).render('notfound')
+  })
+  const queryString = 'SELECT * FROM pokemon WHERE trainer = $1'
+  const value = [req.cookies.trainer_id]
+  pool.query(queryString, value, (err, result) => {
     if (err) {
       console.error('query error:', err.stack);
     } else {
@@ -190,23 +216,29 @@ app.get('/pokemon/:id', (req, response) => {
 
 //Add new pokemon
 app.get('/new', (request, response) => {
-  const numFix = 'SELECT id FROM pokemon WHERE id = (SELECT MAX(id) FROM pokemon)'
+  console.log(request.cookies);
+  if (request.cookies.is_logged_in == 'true') {
+    const numFix = 'SELECT id FROM pokemon WHERE id = (SELECT MAX(id) FROM pokemon)'
 
-  pool.query(numFix, (err,res) => {
-    if (err){
-      console.log(err);
-    } else {
-      let newNum = parseInt(res.rows[0].id) + 1
-      response.render('new', {fixnum : newNum});
-    }
-  })
+    pool.query(numFix, (err,res) => {
+      if (err){
+        console.log(err);
+      } else {
+        let newNum = parseInt(res.rows[0].id) + 1
+        response.render('new', {fixnum : newNum});
+      }
+    })
+  } else {
+    console.log("nay");
+    response.status(401).send("only trainers can add new pokemon!")
+  }
 });
 
 //Insert method for new pokemon
 app.post('/pokemon', (req, response) => {
   let params = req.body;
-  const queryString = 'INSERT INTO pokemon(num, name, img, height, weight) VALUES($1, $2, $3, $4, $5)'
-  const values = [params.num, params.name, params.img, params.height, params.weight];
+  const queryString = 'INSERT INTO pokemon(num, name, img, height, weight, trainer) VALUES($1, $2, $3, $4, $5, $6)'
+  const values = [params.num, params.name, params.img, params.height, params.weight, req.cookies.trainer_id];
   pool.query(queryString, values, (err, res) => {
     if (err) {
       console.log('query error:', err.stack);
